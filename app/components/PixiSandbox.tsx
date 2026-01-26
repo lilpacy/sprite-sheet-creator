@@ -11,6 +11,7 @@ interface Frame {
 interface PixiSandboxProps {
   walkFrames: Frame[];
   jumpFrames: Frame[];
+  attackFrames: Frame[];
   fps: number;
 }
 
@@ -24,28 +25,32 @@ const PARALLAX_LAYERS = [
 ];
 
 // Jump physics constants
-const JUMP_VELOCITY = -12; // Initial upward velocity
-const GRAVITY = 0.6;      // Gravity acceleration
+const JUMP_VELOCITY = -12;
+const GRAVITY = 0.6;
 
-export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandboxProps) {
+export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps }: PixiSandboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const characterState = useRef({
     x: 400,
-    y: 0, // Y offset from ground (0 = on ground, negative = in air)
+    y: 0,
     velocityY: 0,
     direction: "right" as "left" | "right",
     isWalking: false,
     isJumping: false,
+    isAttacking: false,
     walkFrameIndex: 0,
     jumpFrameIndex: 0,
+    attackFrameIndex: 0,
     frameTime: 0,
     jumpFrameTime: 0,
+    attackFrameTime: 0,
   });
   const keysPressed = useRef<Set<string>>(new Set());
   const animationRef = useRef<number>(0);
   const walkImagesRef = useRef<HTMLImageElement[]>([]);
   const jumpImagesRef = useRef<HTMLImageElement[]>([]);
+  const attackImagesRef = useRef<HTMLImageElement[]>([]);
   const bgLayersRef = useRef<HTMLImageElement[]>([]);
   const bgLoadedRef = useRef(false);
   const cameraX = useRef(0);
@@ -128,6 +133,26 @@ export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandbox
     }
   }, [jumpFrames]);
 
+  // Load attack sprite frames
+  useEffect(() => {
+    const loadImages = async () => {
+      const images: HTMLImageElement[] = [];
+      for (const frame of attackFrames) {
+        const img = new Image();
+        img.src = frame.dataUrl;
+        await new Promise((resolve) => {
+          img.onload = resolve;
+        });
+        images.push(img);
+      }
+      attackImagesRef.current = images;
+    };
+    
+    if (attackFrames.length > 0) {
+      loadImages();
+    }
+  }, [attackFrames]);
+
   // Main game loop
   const gameLoop = useCallback(() => {
     const canvas = canvasRef.current;
@@ -139,37 +164,39 @@ export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandbox
     const state = characterState.current;
     const walkImages = walkImagesRef.current;
     const jumpImages = jumpImagesRef.current;
+    const attackImages = attackImagesRef.current;
     const bgLayers = bgLayersRef.current;
     timeRef.current++;
 
     // Clear
     ctx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    // Check if walking (horizontal movement)
+    // Check if walking (horizontal movement) - can't walk while attacking on ground
     const movingHorizontally = keysPressed.current.has("right") || keysPressed.current.has("left");
-    state.isWalking = movingHorizontally && !state.isJumping;
+    state.isWalking = movingHorizontally && !state.isJumping && !state.isAttacking;
 
-    // Handle horizontal movement (works both on ground and in air)
-    if (keysPressed.current.has("right")) {
-      state.direction = "right";
-      state.x += MOVE_SPEED;
-      cameraX.current += MOVE_SPEED;
-    }
-    if (keysPressed.current.has("left")) {
-      state.direction = "left";
-      state.x -= MOVE_SPEED;
-      cameraX.current -= MOVE_SPEED;
+    // Handle horizontal movement (works both on ground and in air, but not during ground attack)
+    const canMove = !state.isAttacking || state.isJumping; // Can move during air attack
+    if (canMove) {
+      if (keysPressed.current.has("right")) {
+        state.direction = "right";
+        state.x += MOVE_SPEED;
+        cameraX.current += MOVE_SPEED;
+      }
+      if (keysPressed.current.has("left")) {
+        state.direction = "left";
+        state.x -= MOVE_SPEED;
+        cameraX.current -= MOVE_SPEED;
+      }
     }
 
     state.x = Math.max(50, Math.min(WORLD_WIDTH - 50, state.x));
 
     // Jump physics
     if (state.isJumping) {
-      // Apply gravity
       state.velocityY += GRAVITY;
       state.y += state.velocityY;
       
-      // Check if landed
       if (state.y >= 0) {
         state.y = 0;
         state.velocityY = 0;
@@ -213,47 +240,72 @@ export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandbox
         state.frameTime = 0;
         state.walkFrameIndex = (state.walkFrameIndex + 1) % walkImages.length;
       }
-    } else if (!state.isJumping) {
+    } else if (!state.isJumping && !state.isAttacking) {
       state.walkFrameIndex = 0;
       state.frameTime = 0;
     }
 
-    // Jump animation - cycle through frames based on jump progress
-    if (state.isJumping && jumpImages.length > 0) {
+    // Jump animation
+    if (state.isJumping && jumpImages.length > 0 && !state.isAttacking) {
       state.jumpFrameTime += 1;
-      if (state.jumpFrameTime >= 60 / (fps * 0.8)) { // Slightly slower for jump
+      if (state.jumpFrameTime >= 60 / (fps * 0.8)) {
         state.jumpFrameTime = 0;
-        // Progress through jump frames
         if (state.jumpFrameIndex < jumpImages.length - 1) {
           state.jumpFrameIndex++;
         }
       }
     }
 
-    // Determine which sprite to draw
+    // Attack animation - plays once then stops
+    if (state.isAttacking && attackImages.length > 0) {
+      state.attackFrameTime += 1;
+      if (state.attackFrameTime >= 60 / (fps * 1.2)) { // Slightly faster for attack
+        state.attackFrameTime = 0;
+        state.attackFrameIndex++;
+        
+        // Attack finished
+        if (state.attackFrameIndex >= attackImages.length) {
+          state.isAttacking = false;
+          state.attackFrameIndex = 0;
+          state.attackFrameTime = 0;
+        }
+      }
+    }
+
+    // Determine which sprite to draw (priority: attack > jump > walk/idle)
     let currentImg: HTMLImageElement | null = null;
     
-    if (state.isJumping && jumpImages.length > 0) {
-      // Use jump frames when in the air
+    if (state.isAttacking && attackImages.length > 0) {
+      // Use attack frames (highest priority)
+      currentImg = attackImages[Math.min(state.attackFrameIndex, attackImages.length - 1)];
+    } else if (state.isJumping && jumpImages.length > 0) {
+      // Use jump frames
       currentImg = jumpImages[state.jumpFrameIndex];
     } else if (walkImages.length > 0) {
-      // Use walk frames when on ground
+      // Use walk frames (idle = frame 0)
       currentImg = walkImages[state.walkFrameIndex];
     }
 
     // Draw character
     if (currentImg) {
       const targetHeight = 80;
-      const scale = targetHeight / currentImg.height;
+      // Use first walk frame as reference for consistent scaling across all animations
+      const referenceImg = walkImages.length > 0 ? walkImages[0] : currentImg;
+      const baseScale = targetHeight / referenceImg.height;
+      // Apply scale boost for attack frames (wider aspect ratio makes character smaller)
+      const isAttackFrame = state.isAttacking && attackImages.length > 0;
+      const scale = baseScale * (isAttackFrame ? 1.2 : 1.0);
       const drawWidth = currentImg.width * scale;
       const drawHeight = currentImg.height * scale;
       
-      // Only add bob when walking on ground, not when jumping
-      const bob = state.isWalking && !state.isJumping ? Math.sin(timeRef.current * 0.3) * 2 : 0;
+      // Only add bob when walking on ground
+      const bob = state.isWalking && !state.isJumping && !state.isAttacking ? Math.sin(timeRef.current * 0.3) * 2 : 0;
       const drawX = state.x - drawWidth / 2;
-      const drawY = GROUND_Y - drawHeight + bob + state.y; // state.y is negative when jumping
+      // Use base scale (without attack boost) for vertical positioning to keep feet grounded
+      const referenceDrawHeight = referenceImg.height * baseScale;
+      const drawY = GROUND_Y - referenceDrawHeight + bob + state.y;
 
-      // Shadow (gets smaller when higher in the air)
+      // Shadow
       const shadowScale = Math.max(0.3, 1 + state.y / 100);
       ctx.fillStyle = `rgba(0, 0, 0, ${0.4 * shadowScale})`;
       ctx.beginPath();
@@ -302,6 +354,7 @@ export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandbox
     characterState.current.y = 0;
     characterState.current.velocityY = 0;
     characterState.current.isJumping = false;
+    characterState.current.isAttacking = false;
     cameraX.current = 0;
 
     animationRef.current = requestAnimationFrame(gameLoop);
@@ -313,12 +366,18 @@ export default function PixiSandbox({ walkFrames, jumpFrames, fps }: PixiSandbox
       if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") {
         keysPressed.current.add("left");
       }
-      // Jump on W or Up arrow - only if on ground
-      if ((e.key === "w" || e.key === "W" || e.key === "ArrowUp") && !characterState.current.isJumping) {
+      // Jump on W or Up arrow - only if on ground and not attacking
+      if ((e.key === "w" || e.key === "W" || e.key === "ArrowUp") && !characterState.current.isJumping && !characterState.current.isAttacking) {
         characterState.current.isJumping = true;
         characterState.current.velocityY = JUMP_VELOCITY;
         characterState.current.jumpFrameIndex = 0;
         characterState.current.jumpFrameTime = 0;
+      }
+      // Attack on J - only if not already attacking
+      if ((e.key === "j" || e.key === "J") && !characterState.current.isAttacking) {
+        characterState.current.isAttacking = true;
+        characterState.current.attackFrameIndex = 0;
+        characterState.current.attackFrameTime = 0;
       }
     };
 

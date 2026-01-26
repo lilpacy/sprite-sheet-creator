@@ -38,16 +38,32 @@ Frame 4 (bottom-right): Landing - character landing, slight crouch to absorb imp
 
 Keep it simple like a classic 8-bit or 16-bit video game sprite. Same character design in all frames. Character facing right.`;
 
-type SpriteType = "walk" | "jump";
+const ATTACK_SPRITE_PROMPT = `Create a 4-frame pixel art attack animation sprite sheet of this character.
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is performing an attack that fits their design - could be a sword slash, magic spell, punch, kick, or energy blast depending on what suits the character best.
+
+Top row (frames 1-2):
+Frame 1 (top-left): Wind-up/anticipation - character preparing to attack, pulling back weapon or gathering energy
+Frame 2 (top-right): Attack in motion - the strike or spell being unleashed
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Impact/peak - maximum extension of attack, weapon fully swung or spell at full power
+Frame 4 (bottom-right): Recovery - returning to ready stance
+
+Keep it simple like a classic 8-bit or 16-bit video game sprite. Same character design in all frames. Character facing right. Make the attack visually dynamic and exciting.`;
+
+type SpriteType = "walk" | "jump" | "attack";
 
 const PROMPTS: Record<SpriteType, string> = {
   walk: WALK_SPRITE_PROMPT,
   jump: JUMP_SPRITE_PROMPT,
+  attack: ATTACK_SPRITE_PROMPT,
 };
 
 const ASPECT_RATIOS: Record<SpriteType, string> = {
-  walk: "4:3",  // 2x3 grid
-  jump: "1:1",  // 2x2 grid
+  walk: "4:3",   // 2x3 grid
+  jump: "1:1",   // 2x2 grid
+  attack: "21:9", // 2x2 grid - ultra-wide for big spell effects
 };
 
 export async function POST(request: NextRequest) {

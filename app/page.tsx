@@ -44,14 +44,16 @@ export default function Home() {
   const [characterImageUrl, setCharacterImageUrl] = useState<string | null>(null);
   const [isGeneratingCharacter, setIsGeneratingCharacter] = useState(false);
 
-  // Step 2: Sprite sheet generation (walk + jump)
+  // Step 2: Sprite sheet generation (walk + jump + attack)
   const [walkSpriteSheetUrl, setWalkSpriteSheetUrl] = useState<string | null>(null);
   const [jumpSpriteSheetUrl, setJumpSpriteSheetUrl] = useState<string | null>(null);
+  const [attackSpriteSheetUrl, setAttackSpriteSheetUrl] = useState<string | null>(null);
   const [isGeneratingSpriteSheet, setIsGeneratingSpriteSheet] = useState(false);
 
-  // Step 3: Background removal (walk + jump)
+  // Step 3: Background removal (walk + jump + attack)
   const [walkBgRemovedUrl, setWalkBgRemovedUrl] = useState<string | null>(null);
   const [jumpBgRemovedUrl, setJumpBgRemovedUrl] = useState<string | null>(null);
+  const [attackBgRemovedUrl, setAttackBgRemovedUrl] = useState<string | null>(null);
   const [isRemovingBg, setIsRemovingBg] = useState(false);
 
   // Step 4: Frame extraction (grid-based) - walk
@@ -72,10 +74,19 @@ export default function Home() {
   const [jumpSpriteSheetDimensions, setJumpSpriteSheetDimensions] = useState({ width: 0, height: 0 });
   const jumpSpriteSheetRef = useRef<HTMLImageElement>(null);
 
+  // Step 4: Frame extraction (grid-based) - attack
+  const [attackGridCols, setAttackGridCols] = useState(2);
+  const [attackGridRows, setAttackGridRows] = useState(2);
+  const [attackVerticalDividers, setAttackVerticalDividers] = useState<number[]>([]);
+  const [attackHorizontalDividers, setAttackHorizontalDividers] = useState<number[]>([]);
+  const [attackExtractedFrames, setAttackExtractedFrames] = useState<Frame[]>([]);
+  const [attackSpriteSheetDimensions, setAttackSpriteSheetDimensions] = useState({ width: 0, height: 0 });
+  const attackSpriteSheetRef = useRef<HTMLImageElement>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Which sprite sheet is being edited
-  const [activeSheet, setActiveSheet] = useState<"walk" | "jump">("walk");
+  const [activeSheet, setActiveSheet] = useState<"walk" | "jump" | "attack">("walk");
 
   // Step 5: Animation preview
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
@@ -123,6 +134,23 @@ export default function Home() {
     }
   }, [jumpGridCols, jumpGridRows, jumpSpriteSheetDimensions.width]);
 
+  // Initialize attack divider positions when grid changes
+  useEffect(() => {
+    if (attackSpriteSheetDimensions.width > 0) {
+      const vPositions: number[] = [];
+      for (let i = 1; i < attackGridCols; i++) {
+        vPositions.push((i / attackGridCols) * 100);
+      }
+      setAttackVerticalDividers(vPositions);
+
+      const hPositions: number[] = [];
+      for (let i = 1; i < attackGridRows; i++) {
+        hPositions.push((i / attackGridRows) * 100);
+      }
+      setAttackHorizontalDividers(hPositions);
+    }
+  }, [attackGridCols, attackGridRows, attackSpriteSheetDimensions.width]);
+
   // Extract walk frames when divider positions change
   useEffect(() => {
     if (walkBgRemovedUrl && walkSpriteSheetDimensions.width > 0) {
@@ -136,6 +164,13 @@ export default function Home() {
       extractJumpFrames();
     }
   }, [jumpBgRemovedUrl, jumpVerticalDividers, jumpHorizontalDividers, jumpSpriteSheetDimensions]);
+
+  // Extract attack frames when divider positions change
+  useEffect(() => {
+    if (attackBgRemovedUrl && attackSpriteSheetDimensions.width > 0) {
+      extractAttackFrames();
+    }
+  }, [attackBgRemovedUrl, attackVerticalDividers, attackHorizontalDividers, attackSpriteSheetDimensions]);
 
   // Animation loop (uses walk frames for preview)
   useEffect(() => {
@@ -258,8 +293,8 @@ export default function Home() {
     setIsGeneratingSpriteSheet(true);
 
     try {
-      // Send parallel requests for walk and jump sprite sheets
-      const [walkResponse, jumpResponse] = await Promise.all([
+      // Send parallel requests for walk, jump, and attack sprite sheets
+      const [walkResponse, jumpResponse, attackResponse] = await Promise.all([
         fetch("/api/generate-sprite-sheet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -270,10 +305,16 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ characterImageUrl, type: "jump" }),
         }),
+        fetch("/api/generate-sprite-sheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ characterImageUrl, type: "attack" }),
+        }),
       ]);
 
       const walkData = await walkResponse.json();
       const jumpData = await jumpResponse.json();
+      const attackData = await attackResponse.json();
 
       if (!walkResponse.ok) {
         throw new Error(walkData.error || "Failed to generate walk sprite sheet");
@@ -281,9 +322,13 @@ export default function Home() {
       if (!jumpResponse.ok) {
         throw new Error(jumpData.error || "Failed to generate jump sprite sheet");
       }
+      if (!attackResponse.ok) {
+        throw new Error(attackData.error || "Failed to generate attack sprite sheet");
+      }
 
       setWalkSpriteSheetUrl(walkData.imageUrl);
       setJumpSpriteSheetUrl(jumpData.imageUrl);
+      setAttackSpriteSheetUrl(attackData.imageUrl);
       setCompletedSteps((prev) => new Set([...prev, 1]));
       setCurrentStep(2);
     } catch (err) {
@@ -294,14 +339,14 @@ export default function Home() {
   };
 
   const removeBackground = async () => {
-    if (!walkSpriteSheetUrl || !jumpSpriteSheetUrl) return;
+    if (!walkSpriteSheetUrl || !jumpSpriteSheetUrl || !attackSpriteSheetUrl) return;
 
     setError(null);
     setIsRemovingBg(true);
 
     try {
-      // Send parallel requests for both sprite sheets
-      const [walkResponse, jumpResponse] = await Promise.all([
+      // Send parallel requests for all sprite sheets
+      const [walkResponse, jumpResponse, attackResponse] = await Promise.all([
         fetch("/api/remove-background", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -312,10 +357,16 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageUrl: jumpSpriteSheetUrl }),
         }),
+        fetch("/api/remove-background", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageUrl: attackSpriteSheetUrl }),
+        }),
       ]);
 
       const walkData = await walkResponse.json();
       const jumpData = await jumpResponse.json();
+      const attackData = await attackResponse.json();
 
       if (!walkResponse.ok) {
         throw new Error(walkData.error || "Failed to remove walk background");
@@ -323,11 +374,16 @@ export default function Home() {
       if (!jumpResponse.ok) {
         throw new Error(jumpData.error || "Failed to remove jump background");
       }
+      if (!attackResponse.ok) {
+        throw new Error(attackData.error || "Failed to remove attack background");
+      }
 
       setWalkBgRemovedUrl(walkData.imageUrl);
       setJumpBgRemovedUrl(jumpData.imageUrl);
+      setAttackBgRemovedUrl(attackData.imageUrl);
       setWalkSpriteSheetDimensions({ width: walkData.width, height: walkData.height });
       setJumpSpriteSheetDimensions({ width: jumpData.width, height: jumpData.height });
+      setAttackSpriteSheetDimensions({ width: attackData.width, height: attackData.height });
       setCompletedSteps((prev) => new Set([...prev, 2]));
       setCurrentStep(3);
     } catch (err) {
@@ -426,6 +482,51 @@ export default function Home() {
 
     img.src = jumpBgRemovedUrl;
   }, [jumpBgRemovedUrl, jumpVerticalDividers, jumpHorizontalDividers]);
+
+  const extractAttackFrames = useCallback(async () => {
+    if (!attackBgRemovedUrl) return;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    
+    img.onload = () => {
+      const frames: Frame[] = [];
+      const colPositions = [0, ...attackVerticalDividers, 100];
+      const rowPositions = [0, ...attackHorizontalDividers, 100];
+
+      for (let row = 0; row < rowPositions.length - 1; row++) {
+        const startY = Math.round((rowPositions[row] / 100) * img.height);
+        const endY = Math.round((rowPositions[row + 1] / 100) * img.height);
+        const frameHeight = endY - startY;
+
+        for (let col = 0; col < colPositions.length - 1; col++) {
+          const startX = Math.round((colPositions[col] / 100) * img.width);
+          const endX = Math.round((colPositions[col + 1] / 100) * img.width);
+          const frameWidth = endX - startX;
+
+          const canvas = document.createElement("canvas");
+          canvas.width = frameWidth;
+          canvas.height = frameHeight;
+          const ctx = canvas.getContext("2d");
+
+          if (ctx) {
+            ctx.drawImage(img, startX, startY, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
+            frames.push({
+              dataUrl: canvas.toDataURL("image/png"),
+              x: startX,
+              y: startY,
+              width: frameWidth,
+              height: frameHeight,
+            });
+          }
+        }
+      }
+
+      setAttackExtractedFrames(frames);
+    };
+
+    img.src = attackBgRemovedUrl;
+  }, [attackBgRemovedUrl, attackVerticalDividers, attackHorizontalDividers]);
 
   // Walk vertical divider drag handling
   const handleWalkVerticalDividerDrag = (index: number, e: React.MouseEvent) => {
@@ -531,6 +632,58 @@ export default function Home() {
     window.addEventListener("mouseup", handleMouseUp);
   };
 
+  // Attack vertical divider drag handling
+  const handleAttackVerticalDividerDrag = (index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const imgRect = attackSpriteSheetRef.current?.getBoundingClientRect();
+    if (!imgRect) return;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const relativeX = moveEvent.clientX - imgRect.left;
+      const percentage = Math.max(0, Math.min(100, (relativeX / imgRect.width) * 100));
+
+      const newPositions = [...attackVerticalDividers];
+      const minPos = index > 0 ? newPositions[index - 1] + 2 : 2;
+      const maxPos = index < newPositions.length - 1 ? newPositions[index + 1] - 2 : 98;
+      newPositions[index] = Math.max(minPos, Math.min(maxPos, percentage));
+      setAttackVerticalDividers(newPositions);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  // Attack horizontal divider drag handling
+  const handleAttackHorizontalDividerDrag = (index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const imgRect = attackSpriteSheetRef.current?.getBoundingClientRect();
+    if (!imgRect) return;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const relativeY = moveEvent.clientY - imgRect.top;
+      const percentage = Math.max(0, Math.min(100, (relativeY / imgRect.height) * 100));
+
+      const newPositions = [...attackHorizontalDividers];
+      const minPos = index > 0 ? newPositions[index - 1] + 2 : 2;
+      const maxPos = index < newPositions.length - 1 ? newPositions[index + 1] - 2 : 98;
+      newPositions[index] = Math.max(minPos, Math.min(maxPos, percentage));
+      setAttackHorizontalDividers(newPositions);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   // Export functions
   const exportWalkSpriteSheet = () => {
     if (!walkBgRemovedUrl) return;
@@ -548,6 +701,14 @@ export default function Home() {
     link.click();
   };
 
+  const exportAttackSpriteSheet = () => {
+    if (!attackBgRemovedUrl) return;
+    const link = document.createElement("a");
+    link.href = attackBgRemovedUrl;
+    link.download = "attack-sprite-sheet.png";
+    link.click();
+  };
+
   const exportAllFrames = () => {
     walkExtractedFrames.forEach((frame, index) => {
       const link = document.createElement("a");
@@ -559,6 +720,12 @@ export default function Home() {
       const link = document.createElement("a");
       link.href = frame.dataUrl;
       link.download = `jump-frame-${index + 1}.png`;
+      link.click();
+    });
+    attackExtractedFrames.forEach((frame, index) => {
+      const link = document.createElement("a");
+      link.href = frame.dataUrl;
+      link.download = `attack-frame-${index + 1}.png`;
       link.click();
     });
   };
@@ -677,12 +844,12 @@ export default function Home() {
           </h2>
 
           <p className="description-text">
-            Walk and jump sprite sheets have been generated. If poses don&apos;t look right, try regenerating.
+            Walk, jump, and attack sprite sheets have been generated. If poses don&apos;t look right, try regenerating.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
             <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>Walk Cycle (6 frames)</h4>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk (6 frames)</h4>
               {walkSpriteSheetUrl && (
                 <div className="image-preview" style={{ margin: 0 }}>
                   <img src={walkSpriteSheetUrl} alt="Walk sprite sheet" />
@@ -690,10 +857,18 @@ export default function Home() {
               )}
             </div>
             <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>Jump (4 frames)</h4>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump (4 frames)</h4>
               {jumpSpriteSheetUrl && (
                 <div className="image-preview" style={{ margin: 0 }}>
                   <img src={jumpSpriteSheetUrl} alt="Jump sprite sheet" />
+                </div>
+              )}
+            </div>
+            <div>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack (4 frames)</h4>
+              {attackSpriteSheetUrl && (
+                <div className="image-preview" style={{ margin: 0 }}>
+                  <img src={attackSpriteSheetUrl} alt="Attack sprite sheet" />
                 </div>
               )}
             </div>
@@ -715,12 +890,12 @@ export default function Home() {
               onClick={generateSpriteSheet}
               disabled={isGeneratingSpriteSheet || isRemovingBg}
             >
-              Regenerate Both
+              Regenerate All
             </button>
             <button
               className="btn btn-success"
               onClick={removeBackground}
-              disabled={isRemovingBg || isGeneratingSpriteSheet || !walkSpriteSheetUrl || !jumpSpriteSheetUrl}
+              disabled={isRemovingBg || isGeneratingSpriteSheet || !walkSpriteSheetUrl || !jumpSpriteSheetUrl || !attackSpriteSheetUrl}
             >
               {isRemovingBg ? "Removing Backgrounds..." : "Remove Backgrounds →"}
             </button>
@@ -729,7 +904,7 @@ export default function Home() {
           {isRemovingBg && (
             <div className="loading">
               <FalSpinner />
-              <span className="loading-text">Removing backgrounds from both sheets...</span>
+              <span className="loading-text">Removing backgrounds from all sheets...</span>
             </div>
           )}
         </div>
@@ -747,9 +922,9 @@ export default function Home() {
             Backgrounds have been removed. Now let&apos;s extract the individual frames.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
             <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>Walk Cycle</h4>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk Cycle</h4>
               {walkBgRemovedUrl && (
                 <div className="image-preview" style={{ margin: 0 }}>
                   <img src={walkBgRemovedUrl} alt="Walk sprite sheet with background removed" />
@@ -757,10 +932,18 @@ export default function Home() {
               )}
             </div>
             <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>Jump</h4>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump</h4>
               {jumpBgRemovedUrl && (
                 <div className="image-preview" style={{ margin: 0 }}>
                   <img src={jumpBgRemovedUrl} alt="Jump sprite sheet with background removed" />
+                </div>
+              )}
+            </div>
+            <div>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack</h4>
+              {attackBgRemovedUrl && (
+                <div className="image-preview" style={{ margin: 0 }}>
+                  <img src={attackBgRemovedUrl} alt="Attack sprite sheet with background removed" />
                 </div>
               )}
             </div>
@@ -802,6 +985,12 @@ export default function Home() {
               onClick={() => setActiveSheet("jump")}
             >
               Jump
+            </button>
+            <button
+              className={`btn ${activeSheet === "attack" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setActiveSheet("attack")}
+            >
+              Attack
             </button>
           </div>
 
@@ -957,6 +1146,82 @@ export default function Home() {
             </>
           )}
 
+          {/* Attack frame extraction */}
+          {activeSheet === "attack" && (
+            <>
+              <div className="frame-controls">
+                <label htmlFor="attackGridCols">Columns:</label>
+                <input
+                  id="attackGridCols"
+                  type="number"
+                  className="frame-count-input"
+                  min={1}
+                  max={8}
+                  value={attackGridCols}
+                  onChange={(e) => setAttackGridCols(Math.max(1, Math.min(8, parseInt(e.target.value) || 2)))}
+                />
+                <label htmlFor="attackGridRows" style={{ marginLeft: "1rem" }}>Rows:</label>
+                <input
+                  id="attackGridRows"
+                  type="number"
+                  className="frame-count-input"
+                  min={1}
+                  max={8}
+                  value={attackGridRows}
+                  onChange={(e) => setAttackGridRows(Math.max(1, Math.min(8, parseInt(e.target.value) || 2)))}
+                />
+                <span style={{ marginLeft: "1rem", color: "var(--text-tertiary)", fontSize: "0.875rem" }}>
+                  ({attackGridCols * attackGridRows} frames)
+                </span>
+              </div>
+
+              {attackBgRemovedUrl && (
+                <div className="frame-extractor">
+                  <div className="sprite-sheet-container">
+                    <img
+                      ref={attackSpriteSheetRef}
+                      src={attackBgRemovedUrl}
+                      alt="Attack sprite sheet"
+                      onLoad={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        setAttackSpriteSheetDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+                      }}
+                    />
+                    <div className="divider-overlay">
+                      {attackVerticalDividers.map((pos, index) => (
+                        <div
+                          key={`av-${index}`}
+                          className="divider-line divider-vertical"
+                          style={{ left: `${pos}%` }}
+                          onMouseDown={(e) => handleAttackVerticalDividerDrag(index, e)}
+                        />
+                      ))}
+                      {attackHorizontalDividers.map((pos, index) => (
+                        <div
+                          key={`ah-${index}`}
+                          className="divider-line divider-horizontal"
+                          style={{ top: `${pos}%` }}
+                          onMouseDown={(e) => handleAttackHorizontalDividerDrag(index, e)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {attackExtractedFrames.length > 0 && (
+                <div className="frames-preview">
+                  {attackExtractedFrames.map((frame, index) => (
+                    <div key={index} className="frame-thumb">
+                      <img src={frame.dataUrl} alt={`Attack frame ${index + 1}`} />
+                      <div className="frame-label">Attack {index + 1}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           <div className="button-group">
             <button className="btn btn-secondary" onClick={() => setCurrentStep(3)}>
               ← Back
@@ -964,7 +1229,7 @@ export default function Home() {
             <button
               className="btn btn-success"
               onClick={proceedToAnimation}
-              disabled={walkExtractedFrames.length === 0 || jumpExtractedFrames.length === 0}
+              disabled={walkExtractedFrames.length === 0 || jumpExtractedFrames.length === 0 || attackExtractedFrames.length === 0}
             >
               Preview Animation →
             </button>
@@ -1016,7 +1281,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", margin: "1rem 0" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", margin: "1rem 0" }}>
             <div>
               <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk Frames</h4>
               <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
@@ -1043,6 +1308,17 @@ export default function Home() {
                 ))}
               </div>
             </div>
+            <div>
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack Frames</h4>
+              <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
+                {attackExtractedFrames.map((frame, index) => (
+                  <div key={index} className="frame-thumb">
+                    <img src={frame.dataUrl} alt={`Attack ${index + 1}`} />
+                    <div className="frame-label">{index + 1}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="export-section">
@@ -1053,6 +1329,9 @@ export default function Home() {
               </button>
               <button className="btn btn-primary" onClick={exportJumpSpriteSheet}>
                 Jump Sheet
+              </button>
+              <button className="btn btn-primary" onClick={exportAttackSpriteSheet}>
+                Attack Sheet
               </button>
               <button className="btn btn-secondary" onClick={exportAllFrames}>
                 All Frames
@@ -1086,7 +1365,7 @@ export default function Home() {
           </h2>
 
           <p className="description-text">
-            Walk and jump your character around! Use the keyboard to control movement.
+            Walk, jump, and attack with your character! Use the keyboard to control movement.
           </p>
 
           <div className="sandbox-container">
@@ -1096,12 +1375,12 @@ export default function Home() {
                 <span className="loading-text">Loading sandbox...</span>
               </div>
             }>
-              <PixiSandbox walkFrames={walkExtractedFrames} jumpFrames={jumpExtractedFrames} fps={fps} />
+              <PixiSandbox walkFrames={walkExtractedFrames} jumpFrames={jumpExtractedFrames} attackFrames={attackExtractedFrames} fps={fps} />
             </Suspense>
           </div>
 
           <div className="keyboard-hint" style={{ marginTop: "1rem" }}>
-            <kbd>A</kbd>/<kbd>←</kbd> walk left | <kbd>D</kbd>/<kbd>→</kbd> walk right | <kbd>W</kbd>/<kbd>↑</kbd> jump
+            <kbd>A</kbd>/<kbd>←</kbd> walk left | <kbd>D</kbd>/<kbd>→</kbd> walk right | <kbd>W</kbd>/<kbd>↑</kbd> jump | <kbd>J</kbd> attack
           </div>
 
           <div className="animation-controls" style={{ marginTop: "1rem" }}>
@@ -1129,10 +1408,13 @@ export default function Home() {
               setCharacterImageUrl(null);
               setWalkSpriteSheetUrl(null);
               setJumpSpriteSheetUrl(null);
+              setAttackSpriteSheetUrl(null);
               setWalkBgRemovedUrl(null);
               setJumpBgRemovedUrl(null);
+              setAttackBgRemovedUrl(null);
               setWalkExtractedFrames([]);
               setJumpExtractedFrames([]);
+              setAttackExtractedFrames([]);
               setCharacterPrompt("");
             }}>
               Start New Sprite
