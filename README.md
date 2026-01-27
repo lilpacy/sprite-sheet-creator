@@ -1,6 +1,6 @@
 # Sprite Sheet Creator
 
-AI-powered sprite sheet generator for 2D pixel art characters. Built with [fal.ai](https://fal.ai) and Next.js.
+AI-powered sprite sheet generator for 2D pixel art characters. Built with [fal.ai](https://fal.ai).
 
 ## Demo
 
