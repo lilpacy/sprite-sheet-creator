@@ -84,7 +84,9 @@ export default function Home() {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
 
   // Step 1: Character generation
+  const [characterInputMode, setCharacterInputMode] = useState<"text" | "image">("text");
   const [characterPrompt, setCharacterPrompt] = useState("");
+  const [inputImageUrl, setInputImageUrl] = useState("");
   const [characterImageUrl, setCharacterImageUrl] = useState<string | null>(null);
   const [isGeneratingCharacter, setIsGeneratingCharacter] = useState(false);
 
@@ -139,7 +141,14 @@ export default function Home() {
   const [direction, setDirection] = useState<"right" | "left">("right");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Step 6: Sandbox - state is now managed inside PixiSandbox component
+  // Step 6: Sandbox
+  const [backgroundMode, setBackgroundMode] = useState<"default" | "custom">("default");
+  const [customBackgroundLayers, setCustomBackgroundLayers] = useState<{
+    layer1Url: string | null;
+    layer2Url: string | null;
+    layer3Url: string | null;
+  }>({ layer1Url: null, layer2Url: null, layer3Url: null });
+  const [isGeneratingBackground, setIsGeneratingBackground] = useState(false);
 
   // Error handling
   const [error, setError] = useState<string | null>(null);
@@ -301,8 +310,13 @@ export default function Home() {
 
   // API calls
   const generateCharacter = async () => {
-    if (!characterPrompt.trim()) {
+    // Validate based on input mode
+    if (characterInputMode === "text" && !characterPrompt.trim()) {
       setError("Please enter a prompt");
+      return;
+    }
+    if (characterInputMode === "image" && !inputImageUrl.trim()) {
+      setError("Please enter an image URL");
       return;
     }
 
@@ -310,10 +324,14 @@ export default function Home() {
     setIsGeneratingCharacter(true);
 
     try {
+      const requestBody = characterInputMode === "image"
+        ? { imageUrl: inputImageUrl, prompt: characterPrompt || undefined }
+        : { prompt: characterPrompt };
+
       const response = await fetch("/api/generate-character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: characterPrompt }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
@@ -382,6 +400,41 @@ export default function Home() {
     }
   };
 
+  const [regeneratingSpriteSheet, setRegeneratingSpriteSheet] = useState<"walk" | "jump" | "attack" | null>(null);
+
+  const regenerateSpriteSheet = async (type: "walk" | "jump" | "attack") => {
+    if (!characterImageUrl) return;
+
+    setError(null);
+    setRegeneratingSpriteSheet(type);
+
+    try {
+      const response = await fetch("/api/generate-sprite-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ characterImageUrl, type }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to generate ${type} sprite sheet`);
+      }
+
+      if (type === "walk") {
+        setWalkSpriteSheetUrl(data.imageUrl);
+      } else if (type === "jump") {
+        setJumpSpriteSheetUrl(data.imageUrl);
+      } else if (type === "attack") {
+        setAttackSpriteSheetUrl(data.imageUrl);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to regenerate ${type} sprite sheet`);
+    } finally {
+      setRegeneratingSpriteSheet(null);
+    }
+  };
+
   const removeBackground = async () => {
     if (!walkSpriteSheetUrl || !jumpSpriteSheetUrl || !attackSpriteSheetUrl) return;
 
@@ -434,6 +487,79 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Failed to remove background");
     } finally {
       setIsRemovingBg(false);
+    }
+  };
+
+  const generateBackground = async () => {
+    if (!characterImageUrl) return;
+
+    setError(null);
+    setIsGeneratingBackground(true);
+
+    try {
+      const response = await fetch("/api/generate-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characterImageUrl,
+          characterPrompt: characterPrompt || "pixel art game character",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate background");
+      }
+
+      setCustomBackgroundLayers({
+        layer1Url: data.layer1Url,
+        layer2Url: data.layer2Url,
+        layer3Url: data.layer3Url,
+      });
+      setBackgroundMode("custom");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate background");
+    } finally {
+      setIsGeneratingBackground(false);
+    }
+  };
+
+  const [regeneratingLayer, setRegeneratingLayer] = useState<number | null>(null);
+
+  const regenerateBackgroundLayer = async (layerNumber: 1 | 2 | 3) => {
+    if (!characterImageUrl || !characterPrompt || !customBackgroundLayers.layer1Url) return;
+
+    setError(null);
+    setRegeneratingLayer(layerNumber);
+
+    try {
+      const response = await fetch("/api/generate-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characterImageUrl,
+          characterPrompt,
+          regenerateLayer: layerNumber,
+          existingLayers: customBackgroundLayers,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to regenerate layer");
+      }
+
+      setCustomBackgroundLayers({
+        layer1Url: data.layer1Url,
+        layer2Url: data.layer2Url,
+        layer3Url: data.layer3Url,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to regenerate layer");
+    } finally {
+      setRegeneratingLayer(null);
     }
   };
 
@@ -826,32 +952,182 @@ export default function Home() {
             Generate Character
           </h2>
 
-          <div className="input-group">
-            <label htmlFor="prompt">Character Prompt</label>
-            <textarea
-              id="prompt"
-              className="text-input"
-              rows={3}
-              placeholder="Describe your pixel art character (e.g., 'pixel art knight with sword and shield, medieval armor, 32-bit style')"
-              value={characterPrompt}
-              onChange={(e) => setCharacterPrompt(e.target.value)}
-            />
+          {/* Input mode tabs */}
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            <button
+              className={`btn ${characterInputMode === "text" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setCharacterInputMode("text")}
+            >
+              Text Prompt
+            </button>
+            <button
+              className={`btn ${characterInputMode === "image" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setCharacterInputMode("image")}
+            >
+              From Image
+            </button>
           </div>
+
+          {characterInputMode === "text" ? (
+            <div className="input-group">
+              <label htmlFor="prompt">Character Prompt</label>
+              <textarea
+                id="prompt"
+                className="text-input"
+                rows={3}
+                placeholder="Describe your pixel art character (e.g., 'pixel art knight with sword and shield, medieval armor, 32-bit style')"
+                value={characterPrompt}
+                onChange={(e) => setCharacterPrompt(e.target.value)}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="input-group">
+                <label>Upload Image</label>
+                {!inputImageUrl ? (
+                  <label
+                    htmlFor="imageUpload"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "2rem",
+                      border: "2px dashed var(--border-color)",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      transition: "border-color 0.2s, background 0.2s",
+                      background: "var(--bg-secondary)",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.borderColor = "var(--accent-color)";
+                      e.currentTarget.style.background = "var(--bg-tertiary)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border-color)";
+                      e.currentTarget.style.background = "var(--bg-secondary)";
+                    }}
+                  >
+                    <svg
+                      width="48"
+                      height="48"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ color: "var(--text-tertiary)", marginBottom: "0.75rem" }}
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.95rem" }}>
+                      Click to upload an image
+                    </span>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                      PNG, JPG, WEBP supported
+                    </span>
+                    <input
+                      id="imageUpload"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            setInputImageUrl(event.target?.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ display: "none" }}
+                    />
+                  </label>
+                ) : (
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "inline-block",
+                      padding: "1rem",
+                      border: "2px solid var(--border-color)",
+                      borderRadius: "8px",
+                      background: "var(--bg-secondary)",
+                    }}
+                  >
+                    <img
+                      src={inputImageUrl}
+                      alt="Uploaded preview"
+                      style={{ maxWidth: "250px", maxHeight: "250px", borderRadius: "4px", display: "block" }}
+                    />
+                    <button
+                      onClick={() => setInputImageUrl("")}
+                      style={{
+                        position: "absolute",
+                        top: "0.5rem",
+                        right: "0.5rem",
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "50%",
+                        border: "none",
+                        background: "var(--bg-primary)",
+                        color: "var(--text-secondary)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.2rem",
+                        lineHeight: 1,
+                      }}
+                      title="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="input-group" style={{ marginTop: "1rem" }}>
+                <label htmlFor="promptOptional">Additional Instructions (optional)</label>
+                <textarea
+                  id="promptOptional"
+                  className="text-input"
+                  rows={2}
+                  placeholder="Any additional instructions for the pixel art conversion..."
+                  value={characterPrompt}
+                  onChange={(e) => setCharacterPrompt(e.target.value)}
+                />
+              </div>
+            </>
+          )}
 
           <div className="button-group">
             <button
               className="btn btn-primary"
               onClick={generateCharacter}
-              disabled={isGeneratingCharacter || !characterPrompt.trim()}
+              disabled={
+                isGeneratingCharacter ||
+                (characterInputMode === "text" && !characterPrompt.trim()) ||
+                (characterInputMode === "image" && !inputImageUrl.trim())
+              }
             >
-              {isGeneratingCharacter ? "Generating..." : "Generate Character"}
+              {isGeneratingCharacter
+                ? "Generating..."
+                : characterInputMode === "image"
+                ? "Convert to Pixel Art"
+                : "Generate Character"}
             </button>
           </div>
 
           {isGeneratingCharacter && (
             <div className="loading">
               <FalSpinner />
-              <span className="loading-text">Generating your character...</span>
+              <span className="loading-text">
+                {characterInputMode === "image"
+                  ? "Converting to pixel art..."
+                  : "Generating your character..."}
+              </span>
             </div>
           )}
 
@@ -905,33 +1181,59 @@ export default function Home() {
             <div>
               <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk (6 frames)</h4>
               {walkSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
+                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "walk" ? 0.5 : 1 }}>
                   <img src={walkSpriteSheetUrl} alt="Walk sprite sheet" />
                 </div>
               )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => regenerateSpriteSheet("walk")}
+                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+              >
+                {regeneratingSpriteSheet === "walk" ? "Regenerating..." : "Regen Walk"}
+              </button>
             </div>
             <div>
               <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump (4 frames)</h4>
               {jumpSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
+                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "jump" ? 0.5 : 1 }}>
                   <img src={jumpSpriteSheetUrl} alt="Jump sprite sheet" />
                 </div>
               )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => regenerateSpriteSheet("jump")}
+                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+              >
+                {regeneratingSpriteSheet === "jump" ? "Regenerating..." : "Regen Jump"}
+              </button>
             </div>
             <div>
               <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack (4 frames)</h4>
               {attackSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
+                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "attack" ? 0.5 : 1 }}>
                   <img src={attackSpriteSheetUrl} alt="Attack sprite sheet" />
                 </div>
               )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => regenerateSpriteSheet("attack")}
+                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+              >
+                {regeneratingSpriteSheet === "attack" ? "Regenerating..." : "Regen Attack"}
+              </button>
             </div>
           </div>
 
-          {isGeneratingSpriteSheet && (
+          {(isGeneratingSpriteSheet || regeneratingSpriteSheet) && (
             <div className="loading">
               <FalSpinner />
-              <span className="loading-text">Regenerating sprite sheets...</span>
+              <span className="loading-text">
+                {isGeneratingSpriteSheet ? "Regenerating all sprite sheets..." : `Regenerating ${regeneratingSpriteSheet} sprite sheet...`}
+              </span>
             </div>
           )}
 
@@ -1422,6 +1724,100 @@ export default function Home() {
             Walk, jump, and attack with your character! Use the keyboard to control movement.
           </p>
 
+          {/* Background mode tabs */}
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            <button
+              className={`btn ${backgroundMode === "default" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setBackgroundMode("default")}
+            >
+              Default Background
+            </button>
+            <button
+              className={`btn ${backgroundMode === "custom" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setBackgroundMode("custom")}
+            >
+              Custom Background
+            </button>
+          </div>
+
+          {/* Custom background generation UI */}
+          {backgroundMode === "custom" && (
+            <div style={{ marginBottom: "1rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: "8px" }}>
+              {!customBackgroundLayers.layer1Url ? (
+                <>
+                  <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                    Generate a custom parallax background that matches your character&apos;s world.
+                  </p>
+                  <button
+                    className="btn btn-success"
+                    onClick={generateBackground}
+                    disabled={isGeneratingBackground}
+                  >
+                    {isGeneratingBackground ? "Generating Background..." : "Generate Custom Background"}
+                  </button>
+                  {isGeneratingBackground && (
+                    <div className="loading" style={{ marginTop: "1rem" }}>
+                      <FalSpinner />
+                      <span className="loading-text">Creating 3-layer parallax background (this may take a moment)...</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                    Custom background generated! Click on a layer to regenerate just that one.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                    <div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 1 (Sky)</div>
+                      <img src={customBackgroundLayers.layer1Url} alt="Background layer" style={{ width: "100%", borderRadius: "4px", opacity: regeneratingLayer === 1 ? 0.5 : 1 }} />
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => regenerateBackgroundLayer(1)}
+                        disabled={isGeneratingBackground || regeneratingLayer !== null}
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                      >
+                        {regeneratingLayer === 1 ? "..." : "Regen"}
+                      </button>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 2 (Mid)</div>
+                      <img src={customBackgroundLayers.layer2Url!} alt="Midground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 2 ? 0.5 : 1 }} />
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => regenerateBackgroundLayer(2)}
+                        disabled={isGeneratingBackground || regeneratingLayer !== null}
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                      >
+                        {regeneratingLayer === 2 ? "..." : "Regen"}
+                      </button>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 3 (Front)</div>
+                      <img src={customBackgroundLayers.layer3Url!} alt="Foreground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 3 ? 0.5 : 1 }} />
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => regenerateBackgroundLayer(3)}
+                        disabled={isGeneratingBackground || regeneratingLayer !== null}
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                      >
+                        {regeneratingLayer === 3 ? "..." : "Regen"}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={generateBackground}
+                    disabled={isGeneratingBackground || regeneratingLayer !== null}
+                    style={{ fontSize: "0.85rem" }}
+                  >
+                    {isGeneratingBackground ? "Regenerating All..." : "Regenerate All Layers"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="sandbox-container">
             <Suspense fallback={
               <div className="loading">
@@ -1429,7 +1825,13 @@ export default function Home() {
                 <span className="loading-text">Loading sandbox...</span>
               </div>
             }>
-              <PixiSandbox walkFrames={walkExtractedFrames} jumpFrames={jumpExtractedFrames} attackFrames={attackExtractedFrames} fps={fps} />
+              <PixiSandbox
+                walkFrames={walkExtractedFrames}
+                jumpFrames={jumpExtractedFrames}
+                attackFrames={attackExtractedFrames}
+                fps={fps}
+                customBackgroundLayers={backgroundMode === "custom" ? customBackgroundLayers : undefined}
+              />
             </Suspense>
           </div>
 
@@ -1470,6 +1872,10 @@ export default function Home() {
               setJumpExtractedFrames([]);
               setAttackExtractedFrames([]);
               setCharacterPrompt("");
+              setInputImageUrl("");
+              setCharacterInputMode("text");
+              setBackgroundMode("default");
+              setCustomBackgroundLayers({ layer1Url: null, layer2Url: null, layer3Url: null });
             }}>
               Start New Sprite
             </button>

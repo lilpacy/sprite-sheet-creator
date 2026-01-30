@@ -16,15 +16,22 @@ interface Frame {
   contentBounds: BoundingBox;
 }
 
+interface CustomBackgroundLayers {
+  layer1Url: string | null;
+  layer2Url: string | null;
+  layer3Url: string | null;
+}
+
 interface PixiSandboxProps {
   walkFrames: Frame[];
   jumpFrames: Frame[];
   attackFrames: Frame[];
   fps: number;
+  customBackgroundLayers?: CustomBackgroundLayers;
 }
 
-// Side-scroller parallax layers
-const PARALLAX_LAYERS = [
+// Default side-scroller parallax layers
+const DEFAULT_PARALLAX_LAYERS = [
   { url: "https://raw.githubusercontent.com/meiliizzsuju/game-parallax-backgrounds/main/assets/layer-1.png", speed: 0 },
   { url: "https://raw.githubusercontent.com/meiliizzsuju/game-parallax-backgrounds/main/assets/layer-2.png", speed: 0.1 },
   { url: "https://raw.githubusercontent.com/meiliizzsuju/game-parallax-backgrounds/main/assets/layer-3.png", speed: 0.3 },
@@ -32,11 +39,14 @@ const PARALLAX_LAYERS = [
   { url: "https://raw.githubusercontent.com/meiliizzsuju/game-parallax-backgrounds/main/assets/layer-5.png", speed: 0.7 },
 ];
 
+// Custom parallax layer speeds (3 layers)
+const CUSTOM_PARALLAX_SPEEDS = [0, 0.3, 0.6];
+
 // Jump physics constants
 const JUMP_VELOCITY = -12;
 const GRAVITY = 0.6;
 
-export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps }: PixiSandboxProps) {
+export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps, customBackgroundLayers }: PixiSandboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const characterState = useRef({
@@ -65,6 +75,9 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps 
   const attackFrameDataRef = useRef<Frame[]>([]);
   const bgLayersRef = useRef<HTMLImageElement[]>([]);
   const bgLoadedRef = useRef(false);
+  // Custom background layers
+  const customBgLayersRef = useRef<HTMLImageElement[]>([]);
+  const customBgLoadedRef = useRef(false);
   const cameraX = useRef(0);
   const timeRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
@@ -78,16 +91,16 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps 
   const GROUND_Y = 340;
   const MOVE_SPEED = 3;
 
-  // Load parallax background layers
+  // Load default parallax background layers
   useEffect(() => {
     const loadLayers = async () => {
       const layers: HTMLImageElement[] = [];
       let loadedCount = 0;
-      
-      for (const layer of PARALLAX_LAYERS) {
+
+      for (const layer of DEFAULT_PARALLAX_LAYERS) {
         const img = new Image();
         img.crossOrigin = "anonymous";
-        
+
         await new Promise<void>((resolve) => {
           img.onload = () => {
             loadedCount++;
@@ -99,16 +112,60 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps 
           };
           img.src = layer.url;
         });
-        
+
         layers.push(img);
       }
-      
+
       bgLayersRef.current = layers;
-      bgLoadedRef.current = loadedCount === PARALLAX_LAYERS.length;
+      bgLoadedRef.current = loadedCount === DEFAULT_PARALLAX_LAYERS.length;
     };
-    
+
     loadLayers();
   }, []);
+
+  // Load custom background layers when provided
+  useEffect(() => {
+    if (!customBackgroundLayers?.layer1Url) {
+      customBgLoadedRef.current = false;
+      customBgLayersRef.current = [];
+      return;
+    }
+
+    const loadCustomLayers = async () => {
+      const urls = [
+        customBackgroundLayers.layer1Url,
+        customBackgroundLayers.layer2Url,
+        customBackgroundLayers.layer3Url,
+      ].filter((url): url is string => url !== null);
+
+      const layers: HTMLImageElement[] = [];
+      let loadedCount = 0;
+
+      for (const url of urls) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            loadedCount++;
+            resolve();
+          };
+          img.onerror = () => {
+            console.log(`Custom layer failed to load: ${url}`);
+            resolve();
+          };
+          img.src = url;
+        });
+
+        layers.push(img);
+      }
+
+      customBgLayersRef.current = layers;
+      customBgLoadedRef.current = loadedCount === urls.length && loadedCount > 0;
+    };
+
+    loadCustomLayers();
+  }, [customBackgroundLayers]);
 
   // Load walk sprite frames
   useEffect(() => {
@@ -237,18 +294,60 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, fps 
     }
 
     // Draw background layers with parallax
-    if (bgLoadedRef.current && bgLayers.length > 0) {
-      bgLayers.forEach((layer, index) => {
+    const useCustomBg = customBgLoadedRef.current && customBgLayersRef.current.length > 0;
+    const customBgLayers = customBgLayersRef.current;
+
+    if (useCustomBg) {
+      // Render custom AI-generated background layers (no tiling - single wide image)
+      // First, calculate the global max camera position based on the fastest layer
+      // This ensures all layers stop scrolling together, maintaining parallax consistency
+      const fastestSpeed = Math.max(...CUSTOM_PARALLAX_SPEEDS);
+      let maxCameraX = Infinity;
+
+      // Find the limiting camera position (where fastest layer hits its edge)
+      for (const layer of customBgLayers) {
         if (layer.complete && layer.naturalWidth > 0) {
-          const speed = PARALLAX_LAYERS[index].speed;
-          const layerOffset = (cameraX.current * speed) % layer.naturalWidth;
-          
           const scale = WORLD_HEIGHT / layer.naturalHeight;
           const scaledWidth = layer.naturalWidth * scale;
-          
+          const maxOffset = Math.max(0, scaledWidth - WORLD_WIDTH);
+          // maxOffset = cameraX * fastestSpeed, so cameraX = maxOffset / fastestSpeed
+          if (fastestSpeed > 0) {
+            maxCameraX = Math.min(maxCameraX, maxOffset / fastestSpeed);
+          }
+          break; // All layers have same dimensions, only need to check one
+        }
+      }
+
+      // Clamp camera position globally
+      const clampedCameraX = Math.max(0, Math.min(maxCameraX === Infinity ? 0 : maxCameraX, cameraX.current));
+
+      customBgLayers.forEach((layer, index) => {
+        if (layer.complete && layer.naturalWidth > 0) {
+          const speed = CUSTOM_PARALLAX_SPEEDS[index] || 0;
+
+          // Scale to fit height
+          const scale = WORLD_HEIGHT / layer.naturalHeight;
+          const scaledWidth = layer.naturalWidth * scale;
+
+          // Calculate scroll offset using the globally clamped camera position
+          const offset = clampedCameraX * speed;
+
+          ctx.drawImage(layer, -offset, 0, scaledWidth, WORLD_HEIGHT);
+        }
+      });
+    } else if (bgLoadedRef.current && bgLayers.length > 0) {
+      // Render default parallax background layers
+      bgLayers.forEach((layer, index) => {
+        if (layer.complete && layer.naturalWidth > 0) {
+          const speed = DEFAULT_PARALLAX_LAYERS[index].speed;
+          const layerOffset = (cameraX.current * speed) % layer.naturalWidth;
+
+          const scale = WORLD_HEIGHT / layer.naturalHeight;
+          const scaledWidth = layer.naturalWidth * scale;
+
           let startX = -((layerOffset * scale) % scaledWidth);
           if (startX > 0) startX -= scaledWidth;
-          
+
           for (let x = startX; x < WORLD_WIDTH; x += scaledWidth) {
             ctx.drawImage(layer, x, 0, scaledWidth, WORLD_HEIGHT);
           }
