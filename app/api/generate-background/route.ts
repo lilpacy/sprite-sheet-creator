@@ -20,7 +20,10 @@ const LAYER2_PROMPT = `Create the MIDDLE layer of a 3-layer parallax background 
 
 I've sent you images of: 1) the character, 2) the background/sky layer already created.
 
-Create mid-distance elements (trees, buildings, hills - whatever fits the character's world) that complement the background layer.
+Create the character's ICONIC/CANONICAL location from their story. Use their most recognizable setting - home village, famous landmarks, signature battlegrounds.
+Examples: Naruto → Hidden Leaf Village with Hokage monument, Goku → World Tournament arena, Link → Hyrule castle.
+
+Elements should fill the frame from middle down to bottom.
 
 Style: Pixel art matching the other images.
 IMPORTANT: Use a transparent background (checkerboard pattern) so this layer can overlay the others.`;
