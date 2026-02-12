@@ -11,15 +11,25 @@ export function useAnimationPreview(walkFrames: Frame[]) {
   const [direction, setDirection] = useState<"right" | "left">("right");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Animation loop
+  // Animation loop (requestAnimationFrame + elapsed-time based)
   useEffect(() => {
     if (!isPlaying || walkFrames.length === 0) return;
+    let rafId: number;
+    let lastTime = 0;
+    const frameDuration = 1000 / fps;
 
-    const interval = setInterval(() => {
-      setCurrentFrameIndex((prev) => (prev + 1) % walkFrames.length);
-    }, 1000 / fps);
+    const tick = (timestamp: number) => {
+      if (lastTime === 0) lastTime = timestamp;
+      const elapsed = timestamp - lastTime;
+      if (elapsed >= frameDuration) {
+        lastTime = timestamp - (elapsed % frameDuration);
+        setCurrentFrameIndex((prev) => (prev + 1) % walkFrames.length);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
 
-    return () => clearInterval(interval);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [isPlaying, fps, walkFrames.length]);
 
   // Draw current frame on canvas
