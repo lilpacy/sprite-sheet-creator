@@ -1,26 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-
-interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface Frame {
-  dataUrl: string;
-  width: number;
-  height: number;
-  contentBounds: BoundingBox;
-}
-
-interface CustomBackgroundLayers {
-  layer1Url: string | null;
-  layer2Url: string | null;
-  layer3Url: string | null;
-}
+import type { Frame, CustomBackgroundLayers } from "../types";
 
 interface PixiSandboxProps {
   walkFrames: Frame[];
@@ -28,6 +9,7 @@ interface PixiSandboxProps {
   attackFrames: Frame[];
   idleFrames: Frame[];
   fps: number;
+  characterScale?: number;
   customBackgroundLayers?: CustomBackgroundLayers;
 }
 
@@ -47,7 +29,7 @@ const CUSTOM_PARALLAX_SPEEDS = [0, 0.3, 0.6];
 const JUMP_VELOCITY = -12;
 const GRAVITY = 0.6;
 
-export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, idleFrames, fps, customBackgroundLayers }: PixiSandboxProps) {
+export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, idleFrames, fps, characterScale = 1.0, customBackgroundLayers }: PixiSandboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const characterState = useRef({
@@ -87,9 +69,11 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, idle
   const timeRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
   const fpsRef = useRef(fps);
+  const characterScaleRef = useRef(characterScale);
 
-  // Sync fpsRef immediately during render (not in useEffect which runs async)
+  // Sync refs immediately during render (not in useEffect which runs async)
   fpsRef.current = fps;
+  characterScaleRef.current = characterScale;
 
   const WORLD_WIDTH = 800;
   const WORLD_HEIGHT = 400;
@@ -490,7 +474,7 @@ export default function PixiSandbox({ walkFrames, jumpFrames, attackFrames, idle
       // Apply scale boost for attack frames - the AI renders characters smaller
       // to fit spell effects, so we compensate
       const isAttackFrame = state.isAttacking && attackImages.length > 0;
-      const scale = baseScale * (isAttackFrame ? 1.35 : 1.0);
+      const scale = baseScale * (isAttackFrame ? 1.35 : 1.0) * characterScaleRef.current;
       
       const drawWidth = currentImg.width * scale;
       const drawHeight = currentImg.height * scale;

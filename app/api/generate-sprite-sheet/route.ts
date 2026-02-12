@@ -54,6 +54,8 @@ const IDLE_SPRITE_PROMPT = `Create a 4-frame pixel art idle/breathing animation 
 
 Arrange the 4 frames in a 2x2 grid on white background. The character is standing still but with subtle idle animation.
 
+The character must be facing straight toward the viewer, standing upright in a neutral front-facing pose.
+
 Top row (frames 1-2):
 Frame 1 (top-left): Neutral standing pose - relaxed stance
 Frame 2 (top-right): Slight inhale - chest/body rises subtly, maybe slight arm movement
